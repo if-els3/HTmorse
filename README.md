@@ -37,7 +37,7 @@ Save the .ioc file (Ctrl+S). When STM32CubeIDE asks to generate code, click "Yes
 
 ## Step 2: Code Modification
 After the base code is generated, a few files need to be manually modified to add the application logic and fix common library issues.
-Copy `main.c`: Replace the entire content of the newly generated `Core/Src/main.c` with the `main.c` file from this repository. This file contains all the logic for handling USB states, reading the keyboard, and displaying the output on the OLED.
+Copy `Inc` & 'Src': Replace the entire content of the newly generated `Core/Src' & 'Core/Inc' with the `Inc` & 'Src' file from this repository. This file contains all the logic for handling USB states, reading the keyboard, and displaying the output on the OLED.
 Copy `usb_host.h`: Replace the entire content of `USB_HOST/App/usb_host.h` with the `usb_host.h` file from this repository. This file includes fixes for the global variable declarations (hUsbHostFS and Appli_state) that are required by main.c.
 
 ## Step 3: Build the Schematics
