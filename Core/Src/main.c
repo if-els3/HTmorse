@@ -37,9 +37,19 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define FONT Font_7x10
 #define CHAR_WIDTH 7
 #define CHAR_HEIGHT 10
-#define MAX_CHARS_PER_LINE (SSD1306_WIDTH / CHAR_WIDTH)  // ~18
+#define MAX_BUFFER_LINES 50
+#define MAX_CHARS_PER_LINE (SSD1306_WIDTH / CHAR_WIDTH) // ~18
+#define MAX_SCREEN_LINES (SSD1306_HEIGHT / CHAR_HEIGHT) // ~6
+
+// for non alfanumeric
+#define KEY_HOME 0x4A
+#define KEY_ARROW_RIGHT 0x4F
+#define KEY_ARROW_LEFT 0x50
+#define KEY_ARROW_DOWN 0x51
+#define KEY_ARROW_UP 0x52
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,7 +58,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
-
 UART_HandleTypeDef huart1;
 
 osThreadId defaultTaskHandle;
@@ -64,6 +73,7 @@ void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 void ProcessKeyboardData(uint8_t* data);
+void redraw_screen(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -108,13 +118,10 @@ int main(void)
 
   //FOR LCD 1306 BIAR NYALA YEKAN
   ssd1306_Init();
-  ssd1306_SetCursor(0, 0);
-  ssd1306_WriteString("USB HOST", Font_11x18, White);
+  ssd1306_WriteString("HOST USB", Font_11x18, White);
   ssd1306_SetCursor(0, 20);
-  ssd1306_WriteString("Ready Cuy!", Font_7x10, White);
-
+  ssd1306_WriteString("READY CUY!", Font_7x10, White);
   ssd1306_UpdateScreen();
-
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -135,7 +142,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 512);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 1024);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -313,7 +320,7 @@ void PrintHostState(HOST_StateTypeDef state) {
     HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 }
 
-// For transforming enum ApplicationTypeDef to string
+// For transforming enum ApplicationTypeDef to string string
 void PrintAppState(ApplicationTypeDef state) {
     char* msg;
     switch(state) {
@@ -343,8 +350,15 @@ void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id)
   }
 }
 
-static uint8_t cursor_x = 0;
-static uint8_t cursor_y = 0;
+// Buffer for saving text
+char text_buffer[MAX_BUFFER_LINES][MAX_CHARS_PER_LINE + 1];
+
+int cursor_line = 0;
+int cursor_col = 0;
+int display_top_line = 0;
+int total_lines = 1;
+uint8_t cursor_visible = 1;
+
 
 // IMPORTANT! CONVERT HID Keycode ke ASCII
 const uint8_t keycodes[] = {
@@ -380,75 +394,105 @@ void USBH_HID_EventCallback(USBH_HandleTypeDef *phost)
   }
 }
 
-//Function to process keyboard data and send to UART
+/**
+  * @brief redraw OLED from text buffer.
+  */
+void redraw_screen(void)
+{
+    ssd1306_Fill(Black);
+
+    for (int i = 0; i < MAX_SCREEN_LINES; i++)
+    {
+        int line_to_draw = display_top_line + i;
+        if (line_to_draw < total_lines)
+        {
+            ssd1306_SetCursor(0, i * CHAR_HEIGHT);
+            ssd1306_WriteString(text_buffer[line_to_draw], FONT, White);
+        }
+    }
+
+    if (cursor_visible && cursor_line >= display_top_line && cursor_line < display_top_line + MAX_SCREEN_LINES)
+    {
+        int screen_y = (cursor_line - display_top_line) * CHAR_HEIGHT;
+        int screen_x = cursor_col * CHAR_WIDTH;
+
+        for (int y = 0; y < CHAR_HEIGHT; y++) {
+            for (int x = 0; x < CHAR_WIDTH; x++) {
+                ssd1306_DrawPixel(screen_x + x, screen_y + y, White);
+            }
+        }
+    }
+
+    ssd1306_UpdateScreen();
+}
+
 
 void ProcessKeyboardData(uint8_t* data)
 {
     uint8_t modifier = data[0];
     uint8_t keycode = data[2];
-    char char_to_write_str[2] = {0};
+    char ascii_char;
 
-    // For Capitalize with shift button
-    if (modifier & 0x22) {  // Left or right shift
-        char_to_write_str[0] = keycodes_shifted[keycode];
-    } else {
-        char_to_write_str[0] = keycodes[keycode];
+    // Handle spesial button (Non-Alfanumeric)
+    if (keycode >= KEY_HOME && keycode <= KEY_ARROW_UP) {
+        switch(keycode) {
+            case KEY_ARROW_UP: if (cursor_line > 0) cursor_line--; break;
+            case KEY_ARROW_DOWN: if (cursor_line < total_lines - 1) cursor_line++; break;
+            case KEY_ARROW_LEFT:
+                if (cursor_col > 0) cursor_col--;
+                else if (cursor_line > 0) {
+                    cursor_line--;
+                    cursor_col = strlen(text_buffer[cursor_line]);
+                }
+                break;
+            case KEY_ARROW_RIGHT:
+                if (cursor_col < strlen(text_buffer[cursor_line])) cursor_col++;
+                else if (cursor_line < total_lines - 1) {
+                    cursor_line++;
+                    cursor_col = 0;
+                }
+                break;
+            case KEY_HOME:
+            	cursor_line = 0; cursor_col = 0; display_top_line = 0;
+            	break;
+        }
+    } else { 
+        if (modifier & 0x22) { ascii_char = keycodes_shifted[keycode]; }
+        else { ascii_char = keycodes[keycode]; }
+
+        if (ascii_char != '\0') {
+            if (ascii_char == '\n') { // Enter
+                if (total_lines < MAX_BUFFER_LINES) {
+                    total_lines++;
+                    cursor_line++;
+                    cursor_col = 0;
+                }
+            } else if (ascii_char == '\b') { // Backspace
+                if (cursor_col > 0) {
+                    memmove(&text_buffer[cursor_line][cursor_col - 1], &text_buffer[cursor_line][cursor_col], strlen(text_buffer[cursor_line]) - cursor_col + 1);
+                    cursor_col--;
+                } 
+            } else if (strlen(text_buffer[cursor_line]) < MAX_CHARS_PER_LINE) { 
+                memmove(&text_buffer[cursor_line][cursor_col + 1], &text_buffer[cursor_line][cursor_col], strlen(text_buffer[cursor_line]) - cursor_col + 1);
+                text_buffer[cursor_line][cursor_col] = ascii_char;
+                cursor_col++;
+            }
+        }
     }
 
-    if (char_to_write_str[0] != '\0')
-    {
-        // --- PART 1: SENDING TO UART ---
-        if (char_to_write_str[0] == '\n') {
-            HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, HAL_MAX_DELAY);
-        } else {
-            HAL_UART_Transmit(&huart1, (uint8_t*)char_to_write_str, 1, HAL_MAX_DELAY);
-        }
-
-        // --- PART 2: SEND TO OLED ---
-        if (char_to_write_str[0] == '\n') { // Enter
-            cursor_x = 0;
-            cursor_y += CHAR_HEIGHT;
-        }
-        else if (char_to_write_str[0] == '\b') { // Backspace
-            if (cursor_x > 0) {
-                cursor_x -= CHAR_WIDTH;
-                ssd1306_SetCursor(cursor_x, cursor_y);
-                ssd1306_WriteString(" ", Font_7x10, White);
-            } else if (cursor_y > 0) {
-                cursor_y -= CHAR_HEIGHT;
-                cursor_x = (MAX_CHARS_PER_LINE - 1) * CHAR_WIDTH;
-                ssd1306_SetCursor(cursor_x, cursor_y);
-                ssd1306_WriteString(" ", Font_7x10, White);
-            }
- 
-        }
-        else {
-
-            if (cursor_x + CHAR_WIDTH > SSD1306_WIDTH) {
-                cursor_x = 0;
-                cursor_y += CHAR_HEIGHT;
-            }
-
-            ssd1306_SetCursor(cursor_x, cursor_y);
-            ssd1306_WriteString(char_to_write_str, Font_7x10, White);
-            cursor_x += CHAR_WIDTH;
-        }
-
-        // checking are screen is full so it'll be clear the screen
-        if (cursor_y >= SSD1306_HEIGHT) {
-            ssd1306_Fill(Black);
-            cursor_x = 0;
-            cursor_y = 0;
-            // Tulis karakter baru di (0,0) jika bukan backspace/enter
-            if (char_to_write_str[0] != '\n' && char_to_write_str[0] != '\b') {
-                ssd1306_SetCursor(cursor_x, cursor_y);
-                ssd1306_WriteString(char_to_write_str, Font_7x10, White);
-                cursor_x += CHAR_WIDTH;
-            }
-        }
-
-        ssd1306_UpdateScreen();
+    if (cursor_col > strlen(text_buffer[cursor_line])) {
+        cursor_col = strlen(text_buffer[cursor_line]);
     }
+
+    // Scrolling
+    if (cursor_line >= display_top_line + MAX_SCREEN_LINES) {
+        display_top_line = cursor_line - MAX_SCREEN_LINES + 1;
+    }
+    if (cursor_line < display_top_line) {
+        display_top_line = cursor_line;
+    }
+
+    redraw_screen();
 }
 /* USER CODE END 4 */
 
@@ -466,8 +510,8 @@ void StartDefaultTask(void const * argument)
 
   /* USER CODE BEGIN 5 */
 
-  static HOST_StateTypeDef last_gState = HOST_IDLE;
   static ApplicationTypeDef last_appliState = APPLICATION_IDLE;
+  uint32_t last_cursor_blink_tick = 0;
   char msg_buffer[50];
 
   /* Infinite loop */
@@ -503,8 +547,11 @@ void StartDefaultTask(void const * argument)
       ssd1306_Fill(Black);
       ssd1306_UpdateScreen();
 
-      cursor_x = 0;
-      cursor_y = 0;
+      // Reset editor
+      memset(text_buffer, 0, sizeof(text_buffer));
+      cursor_line = 0; cursor_col = 0;
+      display_top_line = 0; total_lines = 1;
+      redraw_screen();
     }
     // when keyboard disconnected
     else if (Appli_state == APPLICATION_DISCONNECT)
@@ -513,13 +560,22 @@ void StartDefaultTask(void const * argument)
       ssd1306_SetCursor(0, 0);
       ssd1306_WriteString("EAK COPOT", Font_11x18, White);
       ssd1306_SetCursor(0, 20);
-      ssd1306_WriteString("pasang lagi lah we", Font_7x10, White);
+      ssd1306_WriteString("colok lagi lah we", Font_7x10, White);
       ssd1306_UpdateScreen();
     }
+    // cursor
+    if (HAL_GetTick() - last_cursor_blink_tick > 400)
+    {
+        last_cursor_blink_tick = HAL_GetTick();
+        cursor_visible = !cursor_visible;
+        if (Appli_state == APPLICATION_READY) {
+            redraw_screen();
+        }
+    }
+    osDelay(20);
   }
-  osDelay(100);
-}
   /* USER CODE END 5 */
+}
 }
 
 /**
@@ -550,9 +606,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
+    // Anda bisa menambahkan kode di sini untuk menyalakan LED sebagai indikator error
   }
   /* USER CODE END Error_Handler_Debug */
 }
@@ -573,4 +631,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
