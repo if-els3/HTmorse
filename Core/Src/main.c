@@ -37,6 +37,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define CHAR_WIDTH 7
+#define CHAR_HEIGHT 10
+#define MAX_CHARS_PER_LINE (SSD1306_WIDTH / CHAR_WIDTH)  // ~18
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -105,10 +108,17 @@ int main(void)
 
   //FOR LCD 1306 BIAR NYALA YEKAN
   ssd1306_Init();
-  ssd1306_WriteString("USB HOST", Font_11x18, White);
-  ssd1306_SetCursor(0, 20);
-  ssd1306_WriteString("READY CUY!", Font_11x18, White);
+  ssd1306_SetCursor(15, 0);
+  ssd1306_WriteString("BISMILLAH", Font_11x18, White);
+  ssd1306_SetCursor(50, 20);
+  ssd1306_WriteString("UAS", Font_7x10, White);
+  ssd1306_SetCursor(35, 35);
+  ssd1306_WriteString("PAK REZA", Font_7x10, White);
+  ssd1306_SetCursor(25, 50);
+  ssd1306_WriteString("!!NILAI A!!", Font_7x10, White);
+
   ssd1306_UpdateScreen();
+
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -378,62 +388,74 @@ void USBH_HID_EventCallback(USBH_HandleTypeDef *phost)
 
 void ProcessKeyboardData(uint8_t* data)
 {
-  uint8_t modifier = data[0];
-  uint8_t keycode = data[2];
-  char char_to_write_str[2] = {0};
+    uint8_t modifier = data[0];
+    uint8_t keycode = data[2];
+    char char_to_write_str[2] = {0};
 
-  // FOR CAPITALIZE WITH SHIFT
-  if (modifier & 0x22) {
-    char_to_write_str[0] = keycodes_shifted[keycode];
-  } else {
-    char_to_write_str[0] = keycodes[keycode];
-  }
-
-  if (char_to_write_str[0] != '\0')
-  {
-    // --- PART 1: SENDING TO UART ---
-    if (char_to_write_str[0] == '\n') {
-      HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, HAL_MAX_DELAY);
+    // Konversi keycode ke ASCII berdasarkan modifier shift
+    if (modifier & 0x22) {  // Left or right shift
+        char_to_write_str[0] = keycodes_shifted[keycode];
     } else {
-
-      HAL_UART_Transmit(&huart1, (uint8_t*)char_to_write_str, 1, HAL_MAX_DELAY);
+        char_to_write_str[0] = keycodes[keycode];
     }
 
-    // --- PART 2: SEND TO OLED ---
-    if (char_to_write_str[0] == '\n') { // Tombol Enter
-      cursor_x = 0;
-      cursor_y += 10;
-    }
-    else if (char_to_write_str[0] == '\b') {
-      if (cursor_x >= 7) {
-        cursor_x -= 7;
-        ssd1306_SetCursor(cursor_x, cursor_y);
-        ssd1306_WriteString(" ", Font_7x10, White);
-      }
-    }
-    else {
+    if (char_to_write_str[0] != '\0')
+    {
+        // --- PART 1: SENDING TO UART ---
+        if (char_to_write_str[0] == '\n') {
+            HAL_UART_Transmit(&huart1, (uint8_t*)"\r\n", 2, HAL_MAX_DELAY);
+        } else {
+            HAL_UART_Transmit(&huart1, (uint8_t*)char_to_write_str, 1, HAL_MAX_DELAY);
+        }
 
-      ssd1306_SetCursor(cursor_x, cursor_y);
-      ssd1306_WriteString(char_to_write_str, Font_7x10, White);
-      cursor_x += 7;
-    }
+        // --- PART 2: SEND TO OLED ---
+        if (char_to_write_str[0] == '\n') { // Tombol Enter
+            cursor_x = 0;
+            cursor_y += CHAR_HEIGHT;
+        }
+        else if (char_to_write_str[0] == '\b') { // Backspace
+            if (cursor_x > 0) {
+                // Mundur di baris sama
+                cursor_x -= CHAR_WIDTH;
+                ssd1306_SetCursor(cursor_x, cursor_y);
+                ssd1306_WriteString(" ", Font_7x10, White);
+            } else if (cursor_y > 0) {
+                // Mundur ke baris atas
+                cursor_y -= CHAR_HEIGHT;
+                cursor_x = (MAX_CHARS_PER_LINE - 1) * CHAR_WIDTH;
+                ssd1306_SetCursor(cursor_x, cursor_y);
+                ssd1306_WriteString(" ", Font_7x10, White);
+            }
+            // Jika di (0,0), tidak hapus apa-apa
+        }
+        else {
+            // Cek apakah karakter akan melebihi lebar layar sebelum ditulis
+            if (cursor_x + CHAR_WIDTH > SSD1306_WIDTH) {
+                cursor_x = 0;
+                cursor_y += CHAR_HEIGHT;
+            }
 
-    if (cursor_x >= SSD1306_WIDTH) {
-      cursor_x = 0;
-      cursor_y += 10;
-    }
+            // Tulis karakter normal
+            ssd1306_SetCursor(cursor_x, cursor_y);
+            ssd1306_WriteString(char_to_write_str, Font_7x10, White);
+            cursor_x += CHAR_WIDTH;
+        }
 
-    if (cursor_y >= SSD1306_HEIGHT) {
-      ssd1306_Fill(Black);
-      cursor_x = 0;
-      cursor_y = 0;
-      ssd1306_SetCursor(cursor_x, cursor_y);
-      ssd1306_WriteString(char_to_write_str, Font_7x10, White);
-      cursor_x += 7;
-    }
+        // Cek apakah layar penuh
+        if (cursor_y >= SSD1306_HEIGHT) {
+            ssd1306_Fill(Black);
+            cursor_x = 0;
+            cursor_y = 0;
+            // Tulis karakter baru di (0,0) jika bukan backspace/enter
+            if (char_to_write_str[0] != '\n' && char_to_write_str[0] != '\b') {
+                ssd1306_SetCursor(cursor_x, cursor_y);
+                ssd1306_WriteString(char_to_write_str, Font_7x10, White);
+                cursor_x += CHAR_WIDTH;
+            }
+        }
 
-    ssd1306_UpdateScreen();
-  }
+        ssd1306_UpdateScreen();
+    }
 }
 /* USER CODE END 4 */
 
@@ -496,9 +518,9 @@ void StartDefaultTask(void const * argument)
     {
       ssd1306_Fill(Black);
       ssd1306_SetCursor(0, 0);
-      ssd1306_WriteString("EAK PUTUS", Font_11x18, White);
+      ssd1306_WriteString("Lepas", Font_11x18, White);
       ssd1306_SetCursor(0, 20);
-      ssd1306_WriteString("colok lagi lah we", Font_7x10, White);
+      ssd1306_WriteString("PASANG LAGI", Font_7x10, White);
       ssd1306_UpdateScreen();
     }
   }
