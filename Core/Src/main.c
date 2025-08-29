@@ -610,7 +610,7 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
-    // Anda bisa menambahkan kode di sini untuk menyalakan LED sebagai indikator error
+    // add code for debugging
   }
   /* USER CODE END Error_Handler_Debug */
 }
@@ -631,3 +631,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
