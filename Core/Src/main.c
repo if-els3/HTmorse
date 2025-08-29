@@ -108,14 +108,10 @@ int main(void)
 
   //FOR LCD 1306 BIAR NYALA YEKAN
   ssd1306_Init();
-  ssd1306_SetCursor(15, 0);
-  ssd1306_WriteString("BISMILLAH", Font_11x18, White);
-  ssd1306_SetCursor(50, 20);
-  ssd1306_WriteString("UAS", Font_7x10, White);
-  ssd1306_SetCursor(35, 35);
-  ssd1306_WriteString("PAK REZA", Font_7x10, White);
-  ssd1306_SetCursor(25, 50);
-  ssd1306_WriteString("!!NILAI A!!", Font_7x10, White);
+  ssd1306_SetCursor(0, 0);
+  ssd1306_WriteString("USB HOST", Font_11x18, White);
+  ssd1306_SetCursor(0, 20);
+  ssd1306_WriteString("Ready Cuy!", Font_7x10, White);
 
   ssd1306_UpdateScreen();
 
@@ -317,7 +313,7 @@ void PrintHostState(HOST_StateTypeDef state) {
     HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 }
 
-// For transforming enum ApplicationTypeDef to string string
+// For transforming enum ApplicationTypeDef to string
 void PrintAppState(ApplicationTypeDef state) {
     char* msg;
     switch(state) {
@@ -350,7 +346,7 @@ void USBH_UserProcess(USBH_HandleTypeDef *phost, uint8_t id)
 static uint8_t cursor_x = 0;
 static uint8_t cursor_y = 0;
 
-// Tabel konversi HID Keycode ke ASCII IMPORTANT! CONVERT HID Keycode ke ASCII
+// IMPORTANT! CONVERT HID Keycode ke ASCII
 const uint8_t keycodes[] = {
   '\0', '\0', '\0', '\0', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
   'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
@@ -392,7 +388,7 @@ void ProcessKeyboardData(uint8_t* data)
     uint8_t keycode = data[2];
     char char_to_write_str[2] = {0};
 
-    // Konversi keycode ke ASCII berdasarkan modifier shift
+    // For Capitalize with shift button
     if (modifier & 0x22) {  // Left or right shift
         char_to_write_str[0] = keycodes_shifted[keycode];
     } else {
@@ -409,39 +405,36 @@ void ProcessKeyboardData(uint8_t* data)
         }
 
         // --- PART 2: SEND TO OLED ---
-        if (char_to_write_str[0] == '\n') { // Tombol Enter
+        if (char_to_write_str[0] == '\n') { // Enter
             cursor_x = 0;
             cursor_y += CHAR_HEIGHT;
         }
         else if (char_to_write_str[0] == '\b') { // Backspace
             if (cursor_x > 0) {
-                // Mundur di baris sama
                 cursor_x -= CHAR_WIDTH;
                 ssd1306_SetCursor(cursor_x, cursor_y);
                 ssd1306_WriteString(" ", Font_7x10, White);
             } else if (cursor_y > 0) {
-                // Mundur ke baris atas
                 cursor_y -= CHAR_HEIGHT;
                 cursor_x = (MAX_CHARS_PER_LINE - 1) * CHAR_WIDTH;
                 ssd1306_SetCursor(cursor_x, cursor_y);
                 ssd1306_WriteString(" ", Font_7x10, White);
             }
-            // Jika di (0,0), tidak hapus apa-apa
+ 
         }
         else {
-            // Cek apakah karakter akan melebihi lebar layar sebelum ditulis
+
             if (cursor_x + CHAR_WIDTH > SSD1306_WIDTH) {
                 cursor_x = 0;
                 cursor_y += CHAR_HEIGHT;
             }
 
-            // Tulis karakter normal
             ssd1306_SetCursor(cursor_x, cursor_y);
             ssd1306_WriteString(char_to_write_str, Font_7x10, White);
             cursor_x += CHAR_WIDTH;
         }
 
-        // Cek apakah layar penuh
+        // checking are screen is full so it'll be clear the screen
         if (cursor_y >= SSD1306_HEIGHT) {
             ssd1306_Fill(Black);
             cursor_x = 0;
@@ -518,9 +511,9 @@ void StartDefaultTask(void const * argument)
     {
       ssd1306_Fill(Black);
       ssd1306_SetCursor(0, 0);
-      ssd1306_WriteString("Lepas", Font_11x18, White);
+      ssd1306_WriteString("EAK COPOT", Font_11x18, White);
       ssd1306_SetCursor(0, 20);
-      ssd1306_WriteString("PASANG LAGI", Font_7x10, White);
+      ssd1306_WriteString("pasang lagi lah we", Font_7x10, White);
       ssd1306_UpdateScreen();
     }
   }
@@ -580,3 +573,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
